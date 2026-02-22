@@ -13,3 +13,17 @@ export async function chat(messages: { role: 'user' | 'assistant' | 'system'; co
   if (content == null) throw new Error('Empty OpenAI response');
   return content;
 }
+
+export async function* chatStream(
+  messages: { role: 'user' | 'assistant' | 'system'; content: string }[]
+): AsyncGenerator<string> {
+  const stream = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+    stream: true,
+  });
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (typeof delta === 'string') yield delta;
+  }
+}

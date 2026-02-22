@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getMessages, sendMessage, getThreads, createThread } from './api';
+import { getMessages, sendMessageStream, getThreads, createThread } from './api';
 import MessageItem from './MessageItem';
 
 type Message = { _id: string; role: string; content: string; index: number };
@@ -51,9 +51,32 @@ export default function ThreadPanel({
     if (!text || sending) return;
     setInput('');
     setSending(true);
+    const tempUserMsg: Message = { _id: 'temp-user', role: 'user', content: text, index: -1 };
+    const tempAssistantId = 'streaming-assistant';
+    const tempAssistantMsg: Message = { _id: tempAssistantId, role: 'assistant', content: '', index: -1 };
+    setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
     try {
-      const { userMessage, assistantMessage } = await sendMessage(threadChatId, text);
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      await sendMessageStream(threadChatId, text, {
+        onChunk(chunk) {
+          setMessages((prev) =>
+            prev.map((m) => (m._id === tempAssistantId ? { ...m, content: m.content + chunk } : m))
+          );
+        },
+        onDone({ userMessage, assistantMessage }) {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m._id === 'temp-user') return userMessage;
+              if (m._id === tempAssistantId) return assistantMessage;
+              return m;
+            })
+          );
+          setSending(false);
+        },
+        onError() {
+          setMessages((prev) => prev.filter((m) => m._id !== 'temp-user' && m._id !== tempAssistantId));
+          setSending(false);
+        },
+      });
     } finally {
       setSending(false);
     }

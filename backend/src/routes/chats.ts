@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import { Chat } from '../models/Chat.js';
 import { Message } from '../models/Message.js';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
-import { chat as openaiChat } from '../services/openai.js';
+import { chat as openaiChat, chatStream } from '../services/openai.js';
 
 const router = Router();
 
@@ -101,6 +101,70 @@ router.post('/:chatId/send', async (req: express.Request, res) => {
   await Chat.updateOne({ _id: chat._id }, { updatedAt: new Date(), title: content.slice(0, 50) || chat.title });
 
   res.status(201).json({ userMessage: userMsg, assistantMessage: assistantMsg });
+});
+
+router.post('/:chatId/send-stream', async (req: express.Request, res) => {
+  const authReq = req as AuthRequest;
+  const { chatId } = req.params;
+  const { content } = req.body as { content?: string };
+  if (!content || typeof content !== 'string') return res.status(400).json({ error: 'content required' });
+
+  const chat = await Chat.findOne({ _id: chatId, userId: authReq.user!._id });
+  if (!chat) return res.status(404).json({ error: 'Chat not found' });
+
+  const nextIndex = await Message.countDocuments({ chatId: chat._id });
+  const userMsg = await Message.create({
+    chatId: chat._id,
+    userId: authReq.user!._id,
+    role: 'user',
+    content: content.trim(),
+    index: nextIndex,
+  });
+
+  const contextMessages = await buildContextMessages(
+    chat._id.toString(),
+    chat.parentChatId?.toString(),
+    chat.parentMessageId?.toString()
+  );
+  const messagesForApi = [
+    ...contextMessages.map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user' as const, content: content.trim() },
+  ];
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const send = (obj: object) => res.write(JSON.stringify(obj) + '\n');
+
+  try {
+    let fullContent = '';
+    for await (const chunk of chatStream(messagesForApi)) {
+      fullContent += chunk;
+      send({ type: 'chunk', content: chunk });
+    }
+    const assistantMsg = await Message.create({
+      chatId: chat._id,
+      userId: authReq.user!._id,
+      role: 'assistant',
+      content: fullContent,
+      index: nextIndex + 1,
+    });
+    await Chat.updateOne(
+      { _id: chat._id },
+      { updatedAt: new Date(), title: content.slice(0, 50) || chat.title }
+    );
+    send({
+      type: 'done',
+      userMessage: userMsg.toObject(),
+      assistantMessage: assistantMsg.toObject(),
+    });
+  } catch (err) {
+    send({ type: 'error', error: (err as Error).message });
+  } finally {
+    res.end();
+  }
 });
 
 export default router;
