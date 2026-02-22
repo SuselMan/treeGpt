@@ -1,4 +1,5 @@
 import express, { Router } from 'express';
+import mongoose from 'mongoose';
 import { Chat } from '../models/Chat.js';
 import { Message } from '../models/Message.js';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
@@ -18,13 +19,13 @@ router.get('/', async (req: express.Request, res) => {
 
 router.post('/', async (req: express.Request, res) => {
   const authReq = req as AuthRequest;
+  const _id = new mongoose.Types.ObjectId();
   const chat = await Chat.create({
+    _id,
     userId: authReq.user!._id,
     title: 'New Chat',
-    rootChatId: null,
+    rootChatId: _id,
   });
-  chat.rootChatId = chat._id;
-  await chat.save();
   res.status(201).json(chat);
 });
 
