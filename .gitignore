@@ -1,0 +1,16 @@
+node_modules/
+backend-deploy/
+frontend-deploy/
+dist/
+build/
+.env
+.env.local
+.env.production
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.tgz
+coverage/
+.next/
+out/
