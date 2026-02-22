@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getMessages, sendMessage } from './api';
+import { getMessages, sendMessage, getThreads, createThread } from './api';
 import MessageItem from './MessageItem';
 
 type Message = { _id: string; role: string; content: string; index: number };
@@ -8,18 +8,43 @@ export default function ThreadPanel({
   threadChatId,
   onClose,
   onOpenFullChat,
+  onSelectThread,
 }: {
   threadChatId: string;
   onClose: () => void;
   onOpenFullChat: () => void;
+  onSelectThread: (threadChatId: string) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [threadsByMessage, setThreadsByMessage] = useState<Record<string, { _id: string; title: string }[]>>({});
 
   useEffect(() => {
     getMessages(threadChatId).then((list: Message[]) => setMessages(list)).catch(console.error);
   }, [threadChatId]);
+
+  useEffect(() => {
+    if (!threadChatId || messages.length === 0) {
+      setThreadsByMessage({});
+      return;
+    }
+    const msgIds = messages.map((m) => m._id);
+    Promise.all(
+      msgIds.map((messageId) =>
+        getThreads(threadChatId, messageId).then((threads: { _id: string; title: string }[]) => ({
+          messageId,
+          threads,
+        }))
+      )
+    ).then((results) => {
+      const map: Record<string, { _id: string; title: string }[]> = {};
+      results.forEach(({ messageId, threads }) => {
+        map[messageId] = threads;
+      });
+      setThreadsByMessage(map);
+    }).catch(console.error);
+  }, [threadChatId, messages]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -32,6 +57,15 @@ export default function ThreadPanel({
     } finally {
       setSending(false);
     }
+  };
+
+  const handleCreateThread = async (messageId: string) => {
+    const childChatId = await createThread(threadChatId, messageId);
+    setThreadsByMessage((prev) => ({
+      ...prev,
+      [messageId]: [...(prev[messageId] || []), { _id: childChatId, title: 'Thread' }],
+    }));
+    onSelectThread(childChatId);
   };
 
   return (
@@ -96,10 +130,9 @@ export default function ThreadPanel({
           <MessageItem
             key={msg._id}
             message={msg}
-            threads={[]}
-            onCreateThread={() => {}}
-            onOpenThread={() => {}}
-            hideThreadActions
+            threads={threadsByMessage[msg._id] || []}
+            onCreateThread={() => handleCreateThread(msg._id)}
+            onOpenThread={onSelectThread}
           />
         ))}
       </div>

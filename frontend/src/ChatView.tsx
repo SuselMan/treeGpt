@@ -188,6 +188,7 @@ export default function ChatView() {
           threadChatId={selectedThreadId}
           onClose={() => setSelectedThreadId(null)}
           onOpenFullChat={handleOpenThreadAsChat}
+          onSelectThread={setSelectedThreadId}
         />
       )}
     </div>
